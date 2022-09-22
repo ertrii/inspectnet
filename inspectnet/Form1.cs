@@ -1,5 +1,6 @@
+using System.Net;
 using System.Net.NetworkInformation;
-using System.Net.Sockets;
+using System.Text;
 using System.Timers;
 using Timer = System.Timers.Timer;
 
@@ -25,43 +26,67 @@ namespace inspectnet
 
         private void btn_inspect_Click(object sender, EventArgs e)
         {
-            this.IPAddressAdditionalInfo();
+            if (this.aTimer != null)
+            {
+            this.aTimer.Enabled = false;
+            }
+
             this.aTimer = new (1000);
-            aTimer.Elapsed += OnTimedEvent;
+            ElapsedEventHandler onTimedEvent = this.SendPin;
+            aTimer.Elapsed += onTimedEvent;
             this.aTimer.AutoReset = true;
             this.aTimer.Enabled = true;
+            // waiter.WaitOne();
+        }
 
-        }
-        private void OnTimedEvent(Object source, ElapsedEventArgs e)
+        private void SendPin(Object source, ElapsedEventArgs e)
         {
-            Ping p1 = new();
-            PingReply PR = p1.Send(txt_ip.Text);
-            this.SendLog("Respuesta " + txt_ip.Text + ": " + PR.Status.ToString());
-            p1.Send(txt_ip.Text);
+            Ping ping = new();
+            ping.PingCompleted += new PingCompletedEventHandler(PingCompletedCallback);
+            string data = "12345678901234567890123456789012";
+            byte[] buffer = Encoding.ASCII.GetBytes(data);
+            int timeout = 1000;
+
+            AutoResetEvent waiter = new AutoResetEvent(false);
+            IPAddress ip = IPAddress.Parse(txt_ip.Text.Trim());
+            PingOptions options = new PingOptions(64, true);
+            ping.SendAsync(ip, timeout, buffer, options, waiter);
         }
+
+        private void PingCompletedCallback(object sender, PingCompletedEventArgs e)
+        {
+            PingReply reply = e.Reply;
+            if (reply == null) return;
+            if(reply.Status == IPStatus.Success)
+            {
+                this.SendLog("Respuesta desde" + reply.Address.ToString() + ": Tiempo=" + reply.RoundtripTime + " Bytes=" + reply.Buffer.Length);
+            }
+
+            if(e.UserState != null)
+            {
+                ((AutoResetEvent)e.UserState).Set();
+            }
+        }
+
+        private delegate void SendLogDelegate(string msg);
 
         private void SendLog(string msg)
         {
-            if(txt_log.Text == "")
+            if (txt_ip.InvokeRequired)
             {
-                txt_log.Text = msg;
+                SendLogDelegate delegated = new SendLogDelegate(SendLog);
+                txt_ip.Invoke(delegated, msg);
             }
             else
             {
-                txt_log.Text = txt_log.Text + Environment.NewLine + msg;
-            }
-        }
-
-        private void IPAddressAdditionalInfo()
-        {
-            try
-            {
-                this.SendLog("SupportsIPv4: " + Socket.OSSupportsIPv4);
-                this.SendLog("SupportsIPv6: " + Socket.OSSupportsIPv6);
-            }
-            catch (Exception e)
-            {
-                this.SendLog("[IPAddresses] Exception: " + e.ToString());
+                if(this.txt_log.Text == "")
+                {
+                    this.txt_log.Text = msg;
+                }
+                else
+                {
+                    this.txt_log.Text = msg + Environment.NewLine + this.txt_log.Text;
+                }
             }
         }
     }
